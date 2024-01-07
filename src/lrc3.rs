@@ -131,7 +131,7 @@ impl Opcode {
     pub fn from_ir(ir: &Register) -> Self {
         match ir.id {
             RegisterName::IR => Self::from_ir_content(&ir.content),
-            _ => panic!("Not allowed to build opcode from register ({:?}) that isn't IR")
+            _ => panic!("Not allowed to build opcode from register ({:?}) that isn't IR", ir.id)
         }
     }
 }
@@ -139,19 +139,67 @@ impl Opcode {
 #[derive(Debug)]
 pub struct Instruction {
     opcode: Opcode,
+    sr1: Option<RegisterName>,
+    sr2: Option<RegisterName>,
+    dr: Option<RegisterName>,
 
 }
 impl Instruction {
     pub fn decode_bits(bits: u16) -> Self {
         Self {
-            opcode: Opcode::from_ir_bits(bits)
+            opcode: Opcode::from_ir_bits(bits),
+            sr1: None,
+            sr2: None,
+            dr: None,
         }
     }
 
     pub fn decode_ir(ir: &Register) -> Self {
         Self {
-            opcode: Opcode::from_ir(ir)
+            opcode: Opcode::from_ir(ir),
+            sr1: None,
+            sr2: None,
+            dr: None,
         }
     }
 
+}
+
+#[derive(Debug)]
+pub struct Datapath {
+    regfile: Regfile,
+    
+    ld_pc: bool,
+    ld_ir: bool,
+    ld_mar: bool,
+    ld_reg: bool,
+    ld_cc: bool,
+
+    n: bool,
+    z: bool,
+    p: bool,
+
+    gate_pc: bool,
+    gate_marmux: bool,
+    gate_alu: bool,
+ 
+    pc_mux: u8,
+    addr1_mux: bool,
+    addr2_mux: u8,
+    sr2_mux: bool,
+    aluk: u8,
+}
+
+pub struct Lrc3 {
+    datapath: Datapath,
+    memory: Memory,
+    mar: Register,
+    ir: Register,
+    mdr: Register,
+}
+
+impl Lrc3 {
+    pub fn fsm(&mut self) {
+        
+    }
 }
