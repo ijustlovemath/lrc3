@@ -103,22 +103,52 @@ impl Regfile {
 pub enum Opcode {
     ADD, AND, NOT,
     LD, LDI, LDR, LEA, ST, STR, STI,
-    BR, JSR, JMP, RTI,
+    BR, JSR, JSRR, JMP, RET, RTI,
     TRAP
 }
 
 impl Opcode {
     pub fn from_ir_bits(ir_bits: u16) -> Self {
         match (ir_bits >> 12) & 0xf {
-            0b1001 => Self::NOT,
-            0b0001 => Self::ADD,
-            0b0101 => Self::AND,
-            0b0010 => Self::LD ,
-            0b0011 => Self::ST ,
-            0b1010 => Self::LDI,
-            0b1011 => Self::STI,
-            0b0110 => Self::LDR,
-
+            /* The highest 4 bits of the instruction register,
+             * IR[15:12], always contain the opcode.
+             *
+             * Legend -> instruction name, + if they set cc, 
+             * (eg LD+ has instruction name LD, and
+             * it sets the condition codes for jumps)
+             * This is followed by a colon, 
+             * then all fields of instruction from 
+             * highest bit to lowest of IR, separated by semicolon
+             *
+             * dr, sr1, sr2, sr, baser take 3 bits each
+             * 
+             * constants in the instruction, eg 0b1, are bits which are always set/cleared in a
+             * valid instruction
+             * 
+             * nzp all take 1 bit each
+             * 
+             * other fields are labeled with the 
+             * number of bits they take at the end, 
+             * eg imm5 takes 5 bits
+             */
+            0b0000 => Self::BR,   /* BR      : n; z; p; pcoffset9 */
+            0b0001 => Self::ADD,  /* ADD+    : dr; sr1; 0b000; sr2 
+                                   * ADDi+   : dr; sr1; 0b1; imm5
+                                   */
+            0b0010 => Self::LD ,  /* LD+     : dr; pcoffset9 */
+            0b1010 => Self::LDI,  /* LDi+    : dr; pcoffset9 */
+            0b0011 => Self::ST ,  /* ST      : sr; pcoffset9 */
+            0b1011 => Self::STI,  /* STI     : sr; pcoffset9 */
+            0b0101 => Self::AND,  /* AND+    : dr; sr1; 0b000; sr2 
+                                   * ANDi+   : dr; sr1; 0b1; imm5
+                                   */
+            0b0110 => Self::LDR,  /* LDR+    : dr; baser; offset6 */
+            0b1000 => Self::RTI,  /* RTI     : 0x000 */
+            0b1001 => Self::NOT,  /* NOT+    : dr; sr; 0b111111 */
+            0b1011 => Self::STI,  /* STI     : sr; pcoffset9 */
+            0b1100 => Self::JMP,  /* JMP     : 0b000; baser; 0b000000 */
+            0b1110 => Self::LEA,  /* LEA+    : dr; pcoffset9 */
+            0b1111 => Self::TRAP, /* TRAP    : 0b0000; trapvect8 */
 
             _ => panic!("opcode {:?} not implemented", ir_bits)
         }
@@ -142,6 +172,7 @@ pub struct Instruction {
     sr1: Option<RegisterName>,
     sr2: Option<RegisterName>,
     dr: Option<RegisterName>,
+    baser: Option<RegisterName>,
 
 }
 impl Instruction {
@@ -151,15 +182,18 @@ impl Instruction {
             sr1: None,
             sr2: None,
             dr: None,
+            baser: None,
         }
     }
 
     pub fn decode_ir(ir: &Register) -> Self {
+        let opcode = Opcode::from_ir(ir);
         Self {
-            opcode: Opcode::from_ir(ir),
+            opcode: opcode,
             sr1: None,
             sr2: None,
             dr: None,
+            baser: None,
         }
     }
 
