@@ -35,6 +35,20 @@ impl RegisterName {
         }
     }
 
+    pub fn from_bits(bits: u16) -> Self {
+        match bits & 0x7 {
+            0 => Self::R0,
+            1 => Self::R1,
+            2 => Self::R2,
+            3 => Self::R3,
+            4 => Self::R4,
+            5 => Self::R5,
+            6 => Self::R6,
+            7 => Self::R7,
+            _ => unreachable!(),
+        }
+    }
+
 }
 
 #[derive(Debug)]
@@ -166,35 +180,301 @@ impl Opcode {
     }
 }
 
+//trait SetCc{};
+//trait PcOffset9{};
+//trait PcOffset11{};
+
+#[derive(Debug)]
+struct PcOffset9(u16);
+
+#[derive(Debug)]
+struct PcOffset11(u16);
+
+#[derive(Debug)]
+struct Imm5(u16);
+
+#[derive(Debug)]
+struct Offset6(u16);
+
+#[derive(Debug)]
+struct TrapVect(u16);
+
+#[derive(Debug)]
+struct BranchFlag(bool);
+
+#[derive(Debug)]
+struct TwoSourceArithArgs {
+    dr: RegisterName,
+    sr1: RegisterName,
+    sr2: RegisterName,
+}
+
+#[derive(Debug)]
+struct OneSourceArithArgs {
+    dr: RegisterName,
+    sr: RegisterName,
+}
+
+#[derive(Debug)]
+struct ImmedArithArgs {
+    dr: RegisterName,
+    sr1: RegisterName,
+    imm5: Imm5,
+}
+
+#[derive(Debug)]
+struct BranchArgs {
+    n: BranchFlag,
+    z: BranchFlag,
+    p: BranchFlag,
+    pcoffset9: PcOffset9,
+}
+
+#[derive(Debug)]
+struct BaseRArgs {
+    base_r: RegisterName
+}
+
+#[derive(Debug)]
+struct TrapArgs {
+    trapvect8: TrapVect
+}
+
+#[derive(Debug)]
+struct JsrArgs {
+    pcoffset11: PcOffset11
+}
+
+#[derive(Debug)]
+struct DrOffsetArgs {
+    dr: RegisterName,
+    pcoffset9: PcOffset9,
+}
+
+#[derive(Debug)]
+struct DrBaseROff6Args {
+    dr: RegisterName,
+    base_r: RegisterName,
+    offset6: Offset6,
+}
+
+#[derive(Debug)]
+struct SrBaseROff6Args {
+    sr: RegisterName,
+    base_r: RegisterName,
+    offset6: Offset6,
+}
+
+#[derive(Debug)]
+struct SrOff9Args {
+    sr: RegisterName,
+    offset9: PcOffset9,
+}
+
+#[derive(Debug)]
+pub enum InstructionArgs {
+    Add(TwoSourceArithArgs),
+    Addi(ImmedArithArgs),
+    And(TwoSourceArithArgs),
+    Andi(ImmedArithArgs),
+
+    Br(BranchArgs),
+    Jmp(BaseRArgs),
+    Jsr(JsrArgs),
+    Jsrr(BaseRArgs),
+
+    Ld(DrOffsetArgs),
+    Ldi(DrOffsetArgs),
+    Ldr(DrBaseROff6Args),
+
+    Lea(DrOffsetArgs),
+
+    Not(OneSourceArithArgs),
+    Rti(),
+    
+    St(SrOff9Args),
+    Sti(SrOff9Args),
+    Str(SrBaseROff6Args),
+    Trap(TrapArgs)
+
+}
+
 #[derive(Debug)]
 pub struct Instruction {
     opcode: Opcode,
-    sr1: Option<RegisterName>,
-    sr2: Option<RegisterName>,
-    dr: Option<RegisterName>,
-    baser: Option<RegisterName>,
+    args: Option<InstructionArgs>,
 
 }
 impl Instruction {
     pub fn decode_bits(bits: u16) -> Self {
+        let opcode = Opcode::from_ir_bits(bits);
+        
+        let arg9to11 = bits >> 9;
+        let arg6to8 = bits >> 6;
+        let imm5 = Imm5(bits & 0x1f);
+        let off6 = Offset6(bits & 0x3f);
+        let off9 = PcOffset9(bits & 0x1ff);
+        let off11 = PcOffset11(bits & 0x7ff);
+        let trap8 = TrapVect(bits & 0xff);
+
+        let reg9to11 = RegisterName::from_bits(arg9to11);
+        let reg6to8 = RegisterName::from_bits(arg6to8);
+        let reg0to2 = RegisterName::from_bits(bits);
+
+        let n = BranchFlag((bits >> 11) & 0b1 == 0b1);
+        let z = BranchFlag((bits >> 10) & 0b1 == 0b1);
+        let p = BranchFlag((bits >>  9) & 0b1 == 0b1);
+
+        let args = match opcode {
+            Opcode::ADD => Some({
+                match (bits >> 5) & 0b1 {
+                    0b0 => {
+                        if ((bits >> 3) & 0b11) != 0b0 {
+                            panic!("Illegally encoded ADD instruction: IR[3:4] != 0")
+                        }
+                        InstructionArgs::Add(TwoSourceArithArgs{
+                            dr: reg9to11,
+                            sr1: reg6to8,
+                            sr2: reg0to2,
+                        })
+                    },
+                    0b1 => {
+                        InstructionArgs::Addi(ImmedArithArgs{
+                            dr: reg9to11,
+                            sr1: reg6to8,
+                            imm5: imm5,
+                        })
+                    },
+                    _ => unreachable!(),
+                }
+            }),
+            Opcode::AND => Some({
+                match (bits >> 5) & 0b1 {
+                    0b0 => {
+                        if ((bits >> 3) & 0b11) != 0b0 {
+                            panic!("Illegally encoded AND instruction: IR[3:4] != 0")
+                        }
+                        InstructionArgs::And(TwoSourceArithArgs{
+                            dr: reg9to11,
+                            sr1: reg6to8,
+                            sr2: reg0to2,
+                        })
+                    },
+                    0b1 => {
+                        InstructionArgs::Andi(ImmedArithArgs{
+                            dr: reg9to11,
+                            sr1: reg6to8,
+                            imm5: imm5,
+                        })
+                    },
+                    _ => unreachable!(),
+                }
+            }),
+            Opcode::BR => Some({
+                InstructionArgs::Br(BranchArgs{
+                    n: n,
+                    z: z,
+                    p: p,
+                    pcoffset9: off9
+                })
+            }),
+            Opcode::JMP => Some({
+                if ((bits & 0x3f) != 0b0) {
+                    panic!("Illegally encoded JMP instruction: IR[0:5] != 0")
+                }
+                if ((bits >> 9) & 0b111 != 0b0) {
+                    panic!("Illegally encoded JMP instruction: IR[9:11] != 0")
+                }
+                InstructionArgs::Jmp(BaseRArgs{
+                    base_r: reg6to8
+                })
+            }),
+            Opcode::JSR => Some({
+                if((bits >> 11) & 0b1 != 0b1) {
+                    panic!("Illegally encoded JSR instruction: IR[11:11] != 1")
+                }
+                InstructionArgs::Jsr(JsrArgs{
+                    pcoffset11: off11
+                })
+            }),
+            Opcode::JSRR => Some({
+                if ((bits & 0x3f) != 0b0) {
+                    panic!("Illegally encoded JSRR instruction: IR[0:5] != 0")
+                }
+                if ((bits >> 9) & 0b111 != 0b0) {
+                    panic!("Illegally encoded JSRR instruction: IR[9:11] != 0")
+                }
+                InstructionArgs::Jsrr(BaseRArgs{
+                    base_r: reg6to8
+                })
+            }),
+            Opcode::LD => Some({
+                InstructionArgs::Ld(DrOffsetArgs{
+                    dr: reg9to11,
+                    pcoffset9: off9,
+                })
+            }),
+            Opcode::LDI => Some({
+                InstructionArgs::Ldi(DrOffsetArgs{
+                    dr: reg9to11,
+                    pcoffset9: off9,
+                })
+            }),
+            Opcode::LDR => Some({
+                InstructionArgs::Ldr(DrBaseROff6Args{
+                    dr: reg9to11,
+                    base_r: reg6to8,
+                    offset6: off6,
+                })
+            }),
+            Opcode::LEA => Some({
+                InstructionArgs::Lea(DrOffsetArgs{
+                    dr: reg9to11,
+                    pcoffset9: off9,
+                })
+            }),
+            Opcode::NOT => Some({
+                // TODO: illegally encoded instruction
+                InstructionArgs::Not(OneSourceArithArgs{
+                    dr: reg9to11,
+                    sr: reg6to8,
+                })
+            }),
+            Opcode::ST => Some({
+                InstructionArgs::St(SrOff9Args{
+                    sr: reg9to11,
+                    offset9: off9,
+                })
+            }),
+            Opcode::STI => Some({
+                InstructionArgs::Sti(SrOff9Args{
+                    sr: reg9to11,
+                    offset9: off9,
+                })
+            }),
+            Opcode::STR => Some({
+                InstructionArgs::Str(SrBaseROff6Args{
+                    sr: reg9to11,
+                    base_r: reg6to8,
+                    offset6: off6,
+                })
+            }),
+            Opcode::TRAP => Some({
+                InstructionArgs::Trap(TrapArgs{
+                    trapvect8: trap8,
+                })
+            }),
+            _ => panic!("unhandled opcode {:?}", opcode),
+        };
         Self {
-            opcode: Opcode::from_ir_bits(bits),
-            sr1: None,
-            sr2: None,
-            dr: None,
-            baser: None,
+            opcode: opcode,
+            args: args
         }
     }
 
     pub fn decode_ir(ir: &Register) -> Self {
-        let opcode = Opcode::from_ir(ir);
-        Self {
-            opcode: opcode,
-            sr1: None,
-            sr2: None,
-            dr: None,
-            baser: None,
-        }
+        let _ = Opcode::from_ir(ir);
+        Self::decode_bits(ir.content.0)
     }
 
 }
