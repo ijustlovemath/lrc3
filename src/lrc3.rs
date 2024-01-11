@@ -109,23 +109,29 @@ impl RegisterName {
 struct OpcodeAssumptionsViolation {
     msb: usize,
     lsb: usize,
+    width: usize,
+    mask: u16,
     expected: RegisterContents,
     actual: RegisterContents,
+    opcode: &'static str,
 }
 
 impl OpcodeAssumptionsViolation {
-    fn new(lsb: usize, msb: usize, expected: u16, actual: u16) -> Self {
+    fn new(lsb: usize, msb: usize, expected: u16, actual: u16, opcode_name: &'static str) -> Self {
         if lsb > msb {
             panic!("Programming error: least significant bit should always be less or equal to most significant bit")
         }
 
-        let (_, mask) = width_mask(lsb, msb);
+        let (width, mask) = width_mask(lsb, msb);
 
         Self {
             lsb: lsb,
             msb: msb,
-            expected: RegisterContents::new(expected & mask),
-            actual: RegisterContents::new(actual & mask),
+            width: width,
+            mask: mask,
+            expected: RegisterContents::new(expected),
+            actual: RegisterContents::new((actual & mask) >> lsb),
+            opcode: opcode_name,
         }
     }
 
@@ -140,9 +146,9 @@ impl OpcodeAssumptionsViolation {
 }
 
 #[derive(Debug)]
-enum Lc3Error {
+enum Lrc3Error {
     ProgrammingError(),
-    IllegalOpcode(Vec<OpcodeAssumptionsViolation>),
+    IllegalOpcode(OpcodeAssumptionsViolation),
 
 }
 
@@ -357,7 +363,7 @@ pub enum Instruction {
 }
 
 impl Instruction {
-    pub fn decode_bits(bits: u16) -> Self {
+    pub fn decode_bits(bits: u16) -> Result<Self, Lrc3Error> {
         /* The highest 4 bits of the instruction register,
          * IR[15:12], always contain the opcode.
          */
@@ -407,20 +413,21 @@ impl Instruction {
                 match (bits >> 5) & 0b1 {
                     0b0 => {
                         if ((bits >> 3) & 0b11) != 0b0 {
-                            panic!("Illegally encoded ADD instruction: IR[3:4] != 0")
+                            return Err(Lrc3Error::IllegalOpcode(OpcodeAssumptionsViolation::new(3, 4, 0b0, bits, "ADD")));
+                            // panic!("Illegally encoded ADD instruction: IR[3:4] != 0")
                         }
-                        Instruction::Add(TwoSourceArithArgs{
+                        Ok(Instruction::Add(TwoSourceArithArgs{
                             dr: reg9to11,
                             sr1: reg6to8,
                             sr2: reg0to2,
-                        })
+                        }))
                     },
                     0b1 => {
-                        Instruction::Addi(ImmedArithArgs{
+                        Ok(Instruction::Addi(ImmedArithArgs{
                             dr: reg9to11,
                             sr1: reg6to8,
                             imm5: imm5,
-                        })
+                        }))
                     },
                     _ => unreachable!(),
                 }
@@ -433,20 +440,21 @@ impl Instruction {
                 match mask_out(bits, 5, 5) {
                     0b0 => {
                         if mask_out(bits, 3, 4) != 0b0 {
-                            panic!("Illegally encoded AND instruction: IR[3:4] != 0")
+                            return Err(Lrc3Error::IllegalOpcode(OpcodeAssumptionsViolation::new(3, 4, 0b0, bits, "AND")));
+                            // panic!("Illegally encoded AND instruction: IR[3:4] != 0")
                         }
-                        Instruction::And(TwoSourceArithArgs{
+                        Ok(Instruction::And(TwoSourceArithArgs{
                             dr: reg9to11,
                             sr1: reg6to8,
                             sr2: reg0to2,
-                        })
+                        }))
                     },
                     0b1 => {
-                        Instruction::Andi(ImmedArithArgs{
+                        Ok(Instruction::Andi(ImmedArithArgs{
                             dr: reg9to11,
                             sr1: reg6to8,
                             imm5: imm5,
-                        })
+                        }))
                     },
                     _ => unreachable!(),
                 }
@@ -454,26 +462,28 @@ impl Instruction {
             /* opcode 0b0000: BR(branch) 
              * BR      : n; z; p; pcoffset9 */
             0b0000 => {
-                Instruction::Br(BranchArgs{
+                Ok(Instruction::Br(BranchArgs{
                     n: n,
                     z: z,
                     p: p,
                     pcoffset9: off9
-                })
+                }))
             },
             /* opcode 0b1100: JMP
              * JMP     : 0b000; baser; 0b000000
              */
             0b1100 => {
                 if mask_out(bits, 0, 5) != 0b0 {
-                    panic!("Illegally encoded JMP instruction: IR[0:5] != 0")
+                    return Err(Lrc3Error::IllegalOpcode(OpcodeAssumptionsViolation::new(0, 5, 0b0, bits, "JMP")));
+                    // panic!("Illegally encoded JMP instruction: IR[0:5] != 0")
                 }
                 if mask_out(bits, 9, 11) != 0b0 {
-                    panic!("Illegally encoded JMP instruction: IR[9:11] != 0")
+                    return Err(Lrc3Error::IllegalOpcode(OpcodeAssumptionsViolation::new(9, 11, 0b0, bits, "JMP")));
+                    // panic!("Illegally encoded JMP instruction: IR[9:11] != 0")
                 }
-                Instruction::Jmp(BaseRArgs{
+                Ok(Instruction::Jmp(BaseRArgs{
                     base_r: reg6to8
-                })
+                }))
             },
             /* opcode 0b0100: JSR/JSRR
              * JSR      : 0b1; pcoffset11
@@ -482,20 +492,23 @@ impl Instruction {
             0b0100 => {
                 match mask_out(bits, 11, 11) {
                     0b1 => {
-                        Instruction::Jsr(JsrArgs{
+                        Ok(Instruction::Jsr(JsrArgs{
                             pcoffset11: off11
-                        })
+                        }))
                     },
                     0b0 => {
                         if mask_out(bits, 0, 5) != 0b0 {
-                            panic!("Illegally encoded JSRR instruction: IR[0:5] != 0")
+
+                            return Err(Lrc3Error::IllegalOpcode(OpcodeAssumptionsViolation::new(0, 5, 0b0, bits, "JSRR")));
+                            // panic!("Illegally encoded JSRR instruction: IR[0:5] != 0")
                         }
                         if mask_out(bits, 9, 10) != 0b0 {
-                            panic!("Illegally encoded JSRR instruction: IR[9:11] != 0")
+                            return Err(Lrc3Error::IllegalOpcode(OpcodeAssumptionsViolation::new(9, 10, 0b0, bits, "JSRR")));
+                            // panic!("Illegally encoded JSRR instruction: IR[9:11] != 0")
                         }
-                        Instruction::Jsrr(BaseRArgs{
+                        Ok(Instruction::Jsrr(BaseRArgs{
                             base_r: reg6to8
-                        })
+                        }))
                     },
                     _ => unreachable!()
                 }
@@ -504,38 +517,38 @@ impl Instruction {
              * LD+     : dr; pcoffset9
              */
             0b0010 => {
-                Instruction::Ld(DrOffsetArgs{
+                Ok(Instruction::Ld(DrOffsetArgs{
                     dr: reg9to11,
                     pcoffset9: off9,
-                })
+                }))
             },
             /* opcode 0b1010: LDI
              * LDI+     : dr; pcoffset9
              */
             0b1010 => {
-                Instruction::Ldi(DrOffsetArgs{
+                Ok(Instruction::Ldi(DrOffsetArgs{
                     dr: reg9to11,
                     pcoffset9: off9,
-                })
+                }))
             },
             /* opcode 0b0110: LDR
              * LDR+     : dr; baser; offset6
              */
             0b0110 => {
-                Instruction::Ldr(DrBaseROff6Args{
+                Ok(Instruction::Ldr(DrBaseROff6Args{
                     dr: reg9to11,
                     base_r: reg6to8,
                     offset6: off6,
-                })
+                }))
             },
             /* opcode 0b1110: LEA
              * LEA+    : dr; pcoffset9
              */
             0b1110 => {
-                Instruction::Lea(DrOffsetArgs{
+                Ok(Instruction::Lea(DrOffsetArgs{
                     dr: reg9to11,
                     pcoffset9: off9,
-                })
+                }))
             },
             /* opcode 0b1001: NOT
              * NOT+    : dr; sr; 0b111111
@@ -543,51 +556,54 @@ impl Instruction {
             0b1001 => {
                 let (_, mask5) = width_mask(0, 5);
                 if mask_out(bits, 0, 5) != mask5 {
-                    panic!("Illegally encoded NOT instruction: IR[0:5] != 0b111111")
+
+                    return Err(Lrc3Error::IllegalOpcode(OpcodeAssumptionsViolation::new(0, 5, 0b111111, bits, "NOT")));
+                    // panic!("Illegally encoded NOT instruction: IR[0:5] != 0b111111")
                 }
-                Instruction::Not(OneSourceArithArgs{
+                Ok(Instruction::Not(OneSourceArithArgs{
                     dr: reg9to11,
                     sr: reg6to8,
-                })
+                }))
             },
             /* opcode 0b0011: ST
              * ST      : sr; pcoffset9
              */
             0b0011 => {
-                Instruction::St(SrOff9Args{
+                Ok(Instruction::St(SrOff9Args{
                     sr: reg9to11,
                     offset9: off9,
-                })
+                }))
             },
             /* opcode 0b1011: STI
              * STI     : sr; pcoffset9
              */
             0b1011 => {
-                Instruction::Sti(SrOff9Args{
+                Ok(Instruction::Sti(SrOff9Args{
                     sr: reg9to11,
                     offset9: off9,
-                })
+                }))
             },
             /* opcode 0b0111: STR
              * STR     : sr; baser; offset6
              */
             0b0111 => {
-                Instruction::Str(SrBaseROff6Args{
+                Ok(Instruction::Str(SrBaseROff6Args{
                     sr: reg9to11,
                     base_r: reg6to8,
                     offset6: off6,
-                })
+                }))
             },
             /* opcode 0b1111: TRAP
              * TRAP     : 0b0000; trapvect8
              */
             0b1111 => {
                 if mask_out(bits, 8, 11) != 0b0 {
-                    panic!("Illegally encoded TRAP instruction; IR[8:11] != 0")
+                    return Err(Lrc3Error::IllegalOpcode(OpcodeAssumptionsViolation::new(8, 11, 0b0, bits, "JSRR")));
+                    // panic!("Illegally encoded TRAP instruction; IR[8:11] != 0")
                 }
-                Instruction::Trap(TrapArgs{
+                Ok(Instruction::Trap(TrapArgs{
                     trapvect8: trap8,
-                })
+                }))
             },
             _ => panic!("unhandled opcode {:?}", opcode),
         }
@@ -595,7 +611,7 @@ impl Instruction {
 
     pub fn decode_ir(ir: &Register) -> Self {
         match ir.id {
-            RegisterName::IR => Self::decode_bits(ir.content.0),
+            RegisterName::IR => Self::decode_bits(ir.content.0).expect("unhandled decode ir"),
             _ => panic!("Not allowed to build opcode from register ({:?}) that isn't IR", ir.id)
         }
     }
