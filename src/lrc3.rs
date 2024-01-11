@@ -44,7 +44,7 @@ impl RegisterContents {
         Self::new(self.0 & mask)
     }
 
-    fn sext(self, lsb: usize, msb: usize) -> Self {
+    fn sext(self, _lsb: usize, msb: usize) -> Self {
         let (_, mask) = width_mask(msb + 1, 15);
         
         match (self.0 >> msb) & 0b1 {
@@ -669,7 +669,7 @@ impl Datapath {
         
     }
 
-    fn mux_addr1(&self, instruction: &Instruction) -> RegisterContents {
+    fn mux_addr1(&self, _instruction: &Instruction) -> RegisterContents {
         match self.addr1_mux.0 {
             false => {
                 // Should be regfile.contents_of[sr1]
@@ -682,7 +682,7 @@ impl Datapath {
         }
     }
 
-    fn mux_addr2(&self, instruction: &Instruction) -> RegisterContents {
+    fn mux_addr2(&self, _instruction: &Instruction) -> RegisterContents {
         match self.addr2_mux.0 {
             0 => {self.ir.content.sext(0, 10)},
             1 => {self.ir.content.sext(0, 8)},

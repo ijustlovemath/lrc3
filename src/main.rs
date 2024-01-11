@@ -2,7 +2,7 @@ mod lrc3;
 //#use lrc3::*;
 
 fn main() {
-    let mut rf = lrc3::Regfile::new();
+    let rf = lrc3::Regfile::new();
 
     println!("{:?}", rf);
 
