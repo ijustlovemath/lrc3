@@ -1,6 +1,7 @@
 //use core::marker::PhantomData;
-use std::vec::Vec;
-use core::ops::{Not, Add};
+//use std::vec::Vec;
+use core::ops::{Not, Add, BitAnd};
+use core::fmt::{Error, Formatter, Display};
 
 #[derive(Debug, Copy, Clone)]
 pub enum RegisterName {
@@ -74,6 +75,20 @@ impl Add for RegisterContents {
     }
 }
 
+impl BitAnd<u16> for RegisterContents {
+    type Output = u16;
+
+    fn bitand(self, other: u16) -> Self::Output {
+        other & self.0
+    }
+}
+
+impl Display for RegisterContents {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
+        write!(f, "Reg[{:04x}]", self.0)
+    }
+}
+
 impl RegisterName {
     pub fn index(&self) -> usize {
         match self {
@@ -143,6 +158,12 @@ impl OpcodeAssumptionsViolation {
 //
 //        Some(self)
 //    }
+}
+
+impl Display for OpcodeAssumptionsViolation {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
+        write!(f, "Illegally encoded {} instruction: IR[{}:{}] should be {}, but is {}", self.opcode, self.msb, self.lsb, self.expected, (self.actual & self.mask) >> self.lsb)
+    }
 }
 
 #[derive(Debug)]
