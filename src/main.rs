@@ -8,6 +8,9 @@ fn main() {
 
 //    println!("instruction encoded is {:?}", lrc3::Opcode::from_ir_bits(0b1111_111111111111));
 
+    if let Err(e) = lrc3::Instruction::decode_bits(0b0001_011_101_0_01_001) {
+        println!("broken instruction: {}", e);
+    }
     println!("instruction from bits: {:?}", lrc3::Instruction::decode_ir(&lrc3::Register::ir_from_bits(0b0001_011_101_0_00_001)));
     println!("instruction from bits: {:?}", lrc3::Instruction::decode_ir(&lrc3::Register::ir_from_bits(0b0001_011_101_1_01001)));
 

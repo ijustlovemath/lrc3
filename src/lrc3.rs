@@ -121,7 +121,7 @@ impl RegisterName {
 }
 
 #[derive(Debug, Copy, Clone)]
-struct OpcodeAssumptionsViolation {
+pub struct OpcodeAssumptionsViolation {
     msb: usize,
     lsb: usize,
     width: usize,
@@ -167,10 +167,25 @@ impl Display for OpcodeAssumptionsViolation {
 }
 
 #[derive(Debug)]
-enum Lrc3Error {
+pub enum Lrc3Error {
     ProgrammingError(),
     IllegalOpcode(OpcodeAssumptionsViolation),
 
+}
+
+impl Display for Lrc3Error {
+
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
+        match self {
+            Self::ProgrammingError() => {
+                write!(f, "LC3 Error: A mistake was made in this implementation of the LC3")
+            },
+            Self::IllegalOpcode(o) => {
+                write!(f, "LC3 Error: {}", o)
+            },
+        }
+
+    }
 }
 
 #[derive(Debug)]
