@@ -33,10 +33,48 @@ fn width_mask(lsb: usize, msb: usize) -> (usize, u16) {
     (width, mask)
 }
 
-fn mask_out(value: u16, lsb: usize, msb: usize) -> u16 {
+pub fn mask_out(value: u16, lsb: usize, msb: usize) -> u16 {
     let (_, mask) = width_mask(lsb, msb);
 
     (value & mask) >> lsb
+}
+
+pub fn zext16(bits: u16, lsb: usize, msb: usize) -> u16 {
+    let (_, mask) = width_mask(lsb, msb);
+
+    // Keep all the bits from lsb to msb as they are
+    bits & mask
+}
+
+/// # Sign extension starting from msb, 0-indexed
+pub fn sext16(bits: u16, msb: usize) -> u16 {
+    let (_, mask) = width_mask(msb + 1, 15);
+
+    if msb == 0 {
+        panic!("don't know how to sign extend from 0th bit")
+    }
+    
+    /*
+     * sext16(0b011, 2) -> right shift 2 = 0b0 is the sign bit
+     * add in a bunch of 0s from bit 3 (msb+1) to the end
+     */
+    match (bits >> msb) & 0b1 {
+        0b0 => { bits & !mask }
+        0b1 => { bits | mask}
+        _ => unreachable!()
+    }
+}
+
+#[test]
+fn sext16test() {
+    assert_eq!(sext16(0b111, 2), 0xffff);
+    assert_eq!(sext16(0b111, 1), 0xffff);
+    assert_eq!(sext16(0b111, 3), 0x7);
+    assert_eq!(sext16(0b011, 2), 0b11);
+    assert_eq!(sext16(0b100101101, 8), 0b1111_1111_0010_1101);
+    assert_eq!(sext16(0b111, 2) as i16, -1);
+    assert_eq!(sext16(0b0111, 3) as i16, 7);
+
 }
 
 impl RegisterContents {
@@ -49,19 +87,11 @@ impl RegisterContents {
     }
 
     fn zext(self, lsb: usize, msb: usize) -> Self {
-        // TODO get width and mask from a helper function
-        let (_, mask) = width_mask(lsb, msb);
-        Self::new(self.0 & mask)
+        Self::new(zext16(self.0, lsb, msb))
     }
 
-    fn sext(self, _lsb: usize, msb: usize) -> Self {
-        let (_, mask) = width_mask(msb + 1, 15);
-
-        match (self.0 >> msb) & 0b1 {
-            0b0 => Self { 0: self.0 & !mask },
-            0b1 => Self { 0: self.0 | mask },
-            _ => unreachable!(),
-        }
+    fn sext(self, msb: usize) -> Self {
+        Self { 0: sext16(self.0, msb) }
     }
 }
 
@@ -301,7 +331,24 @@ struct PcOffset9(u16);
 struct PcOffset11(u16);
 
 #[derive(Debug)]
-struct Imm5(u16);
+pub struct Imm5(u16);
+
+impl Imm5 {
+    pub fn new(bits: u16) -> Self {
+        Self{ 0: sext16(bits & 0x1f, 4) }
+    }
+}
+
+impl Display for Imm5 {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
+        write!(f, "#{}", self.0 as i16)
+    }
+}
+
+#[test]
+fn test_imm5_display() {
+    assert_eq!(format!("{}", Imm5::new(0b111_111)), "#-1")
+}
 
 #[derive(Debug)]
 struct Offset6(u16);
@@ -346,7 +393,7 @@ struct ImmedArithArgs {
 
 impl Display for ImmedArithArgs {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
-        write!(f, "{:?}, #{} -> {:?}", self.sr1, self.imm5.0, self.dr)
+        write!(f, "{:?}, {} -> {:?}", self.sr1, self.imm5, self.dr)
     }
 }
 
@@ -642,7 +689,7 @@ impl Instruction {
          */
         let arg9to11 = bits >> 9;
         let arg6to8 = bits >> 6;
-        let imm5 = Imm5(bits & 0x1f);
+        let imm5 = Imm5::new(bits);
         let off6 = Offset6(bits & 0x3f);
         let off9 = PcOffset9(bits & 0x1ff);
         let off11 = PcOffset11(bits & 0x7ff);
@@ -930,9 +977,9 @@ impl Datapath {
 
     fn mux_addr2(&self, _instruction: &Instruction) -> RegisterContents {
         match self.addr2_mux.0 {
-            0 => self.ir.content.sext(0, 10),
-            1 => self.ir.content.sext(0, 8),
-            2 => self.ir.content.sext(0, 5),
+            0 => self.ir.content.sext(10),
+            1 => self.ir.content.sext(8),
+            2 => self.ir.content.sext(5),
             3 => RegisterContents::init(),
             _ => panic!("Invalid value for ADDR2MUX: {:?}", self.addr2_mux),
         }
@@ -974,8 +1021,10 @@ impl Lrc3CpuState {
 }
 
 enum Lrc3State {
-    S18,
-    S19,
+    S0_Branch,
+    S18_Fetch_LdMar,
+    S19_Fetch_IncPc,
+
 }
 
 trait Lrc3Transition {
@@ -983,14 +1032,15 @@ trait Lrc3Transition {
 }
 
 impl Lrc3Transition for Lrc3State18 {
-    fn transition(self, _: &mut Lrc3CpuState) -> Lrc3State {
-        Lrc3State::S19
+    fn transition(self, state: &mut Lrc3CpuState) -> Lrc3State {
+        
+        Lrc3State::S19_Fetch_IncPc
     }
 }
 
 impl Lrc3Transition for Lrc3State19 {
     fn transition(self, _: &mut Lrc3CpuState) -> Lrc3State {
-        Lrc3State::S18
+        Lrc3State::S18_Fetch_LdMar
     }
 }
 
@@ -1002,7 +1052,7 @@ struct Lrc3Cpu {
 impl Lrc3Cpu {
     pub fn new() -> Self {
         Self {
-            state: Lrc3State::S18,
+            state: Lrc3State::S18_Fetch_LdMar,
             data: Lrc3CpuState::new(RegisterContents::new(0x3000)),
         }
     }
