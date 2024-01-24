@@ -327,8 +327,34 @@ struct TwoBitMux(u8);
 #[derive(Debug)]
 struct PcOffset9(u16);
 
+impl PcOffset9 {
+    pub fn new(bits: u16) -> Self {
+        Self{ 0: sext16(bits & 0x1ff, 8) }
+    }
+}
+
+impl Display for PcOffset9 {
+
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
+        write!(f, "#{}", self.0 as i16)
+    }
+}
+
 #[derive(Debug)]
 struct PcOffset11(u16);
+
+impl PcOffset11 {
+    pub fn new(bits: u16) -> Self {
+        Self{ 0: sext16(bits & 0x7ff, 10) }
+    }
+}
+
+impl Display for PcOffset11 {
+
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
+        write!(f, "#{}", self.0 as i16)
+    }
+}
 
 #[derive(Debug)]
 pub struct Imm5(u16);
@@ -409,11 +435,11 @@ impl Display for BranchArgs {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
         write!(
             f,
-            "{}{}{} #{}",
+            "{}{}{} {}",
             if self.n.0 { "n" } else { "" },
             if self.z.0 { "z" } else { "" },
             if self.p.0 { "p" } else { "" },
-            self.pcoffset9.0
+            self.pcoffset9
         )
     }
 }
@@ -449,8 +475,8 @@ impl Display for JsrArgs {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
         write!(
             f,
-            "#{} ; PC + SEXT(0b{:011b}) -> PC",
-            self.pcoffset11.0, self.pcoffset11.0
+            "{} ; PC + SEXT(0b{:011b}) -> PC",
+            self.pcoffset11, self.pcoffset11.0
         )
     }
 }
@@ -465,8 +491,8 @@ impl Display for LdArgs {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
         write!(
             f,
-            "MEM[PC + SEXT(0b{:09b})] -> {:?}",
-            self.pcoffset9.0, self.dr
+            "MEM[PC + {}] -> {:?}",
+            self.pcoffset9, self.dr
         )
     }
 }
@@ -497,8 +523,8 @@ impl Display for LeaArgs {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
         write!(
             f,
-            "{:?}, #{} ; PC + SEXT(0b{:09b})-> {:?}",
-            self.dr, self.pcoffset9.0, self.pcoffset9.0, self.dr
+            "{:?}, {} ; PC + SEXT(0b{:09b}) -> {:?}",
+            self.dr, self.pcoffset9, self.pcoffset9.0, self.dr
         )
     }
 }
@@ -552,8 +578,8 @@ impl Display for StArgs {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
         write!(
             f,
-            "{:?}, #{} ; {:?} -> MEM[PC + SEXT(0b{:09b})]",
-            self.sr, self.offset9.0, self.sr, self.offset9.0,
+            "{:?}, {} ; {:?} -> MEM[PC + SEXT(0b{:09b})]",
+            self.sr, self.offset9, self.sr, self.offset9.0,
         )
     }
 }
@@ -568,8 +594,8 @@ impl Display for StiArgs {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
         write!(
             f,
-            "{:?}, #{} ; {:?} -> MEM[MEM[PC + SEXT(0b{:09b})]]",
-            self.sr, self.offset9.0, self.sr, self.offset9.0,
+            "{:?}, {} ; {:?} -> MEM[MEM[PC + SEXT(0b{:09b})]]",
+            self.sr, self.offset9, self.sr, self.offset9.0,
         )
     }
 }
@@ -691,8 +717,8 @@ impl Instruction {
         let arg6to8 = bits >> 6;
         let imm5 = Imm5::new(bits);
         let off6 = Offset6(bits & 0x3f);
-        let off9 = PcOffset9(bits & 0x1ff);
-        let off11 = PcOffset11(bits & 0x7ff);
+        let off9 = PcOffset9::new(bits);
+        let off11 = PcOffset11::new(bits);
         let trap8 = TrapVect(bits & 0xff);
 
         let reg9to11 = RegisterName::from_bits(arg9to11);
