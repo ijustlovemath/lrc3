@@ -331,6 +331,10 @@ impl PcOffset9 {
     pub fn new(bits: u16) -> Self {
         Self{ 0: sext16(bits & 0x1ff, 8) }
     }
+
+    pub fn masked(&self) -> u16 {
+        self.0 & 0x1ff
+    }
 }
 
 impl Display for PcOffset9 {
@@ -346,6 +350,10 @@ struct PcOffset11(u16);
 impl PcOffset11 {
     pub fn new(bits: u16) -> Self {
         Self{ 0: sext16(bits & 0x7ff, 10) }
+    }
+
+    pub fn masked(&self) -> u16 {
+        self.0 & 0x7ff
     }
 }
 
@@ -378,6 +386,22 @@ fn test_imm5_display() {
 
 #[derive(Debug)]
 struct Offset6(u16);
+
+impl Offset6 {
+    pub fn new(bits: u16) -> Self {
+        Self{ 0: sext16(bits & 0x3f, 5) }
+    }
+
+    pub fn masked(&self) -> u16 {
+        self.0 & 0x3f
+    }
+}
+
+impl Display for Offset6 {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
+       write!(f, "#{}", self.0 as i16)
+    }
+}
 
 #[derive(Debug)]
 struct TrapVect(u16);
@@ -476,7 +500,7 @@ impl Display for JsrArgs {
         write!(
             f,
             "{} ; PC + SEXT(0b{:011b}) -> PC",
-            self.pcoffset11, self.pcoffset11.0
+            self.pcoffset11, self.pcoffset11.masked()
         )
     }
 }
@@ -540,12 +564,12 @@ impl Display for LdrArgs {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
         write!(
             f,
-            "{:?}, {:?}, #{} ; MEM[{:?} + SEXT(0b{:06b})] -> {:?}",
+            "{:?}, {:?}, {} ; MEM[{:?} + SEXT(0b{:06b})] -> {:?}",
             self.dr,
             self.base_r,
-            self.offset6.0, // TODO build out the sign extension code to make these printable
+            self.offset6,
             self.base_r,
-            self.offset6.0,
+            self.offset6.masked(),
             self.dr
         )
     }
@@ -562,8 +586,8 @@ impl Display for StrArgs {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
         write!(
             f,
-            "{:?}, {:?}, #{} ; {:?} -> MEM[{:?} + SEXT(0b{:06b})]",
-            self.sr, self.base_r, self.offset6.0, self.sr, self.base_r, self.offset6.0
+            "{:?}, {:?}, {} ; {:?} -> MEM[{:?} + SEXT(0b{:06b})]",
+            self.sr, self.base_r, self.offset6, self.sr, self.base_r, self.offset6.masked()
         )
     }
 }
@@ -579,7 +603,7 @@ impl Display for StArgs {
         write!(
             f,
             "{:?}, {} ; {:?} -> MEM[PC + SEXT(0b{:09b})]",
-            self.sr, self.offset9, self.sr, self.offset9.0,
+            self.sr, self.offset9, self.sr, self.offset9.masked(),
         )
     }
 }
@@ -595,7 +619,7 @@ impl Display for StiArgs {
         write!(
             f,
             "{:?}, {} ; {:?} -> MEM[MEM[PC + SEXT(0b{:09b})]]",
-            self.sr, self.offset9, self.sr, self.offset9.0,
+            self.sr, self.offset9, self.sr, self.offset9.masked(),
         )
     }
 }
@@ -716,7 +740,7 @@ impl Instruction {
         let arg9to11 = bits >> 9;
         let arg6to8 = bits >> 6;
         let imm5 = Imm5::new(bits);
-        let off6 = Offset6(bits & 0x3f);
+        let off6 = Offset6::new(bits);
         let off9 = PcOffset9::new(bits);
         let off11 = PcOffset11::new(bits);
         let trap8 = TrapVect(bits & 0xff);
